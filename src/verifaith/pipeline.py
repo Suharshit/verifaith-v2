@@ -94,18 +94,27 @@ class Verifier:
 
     # ------------------------------------------------------------------ internals
     def _extract_claims(self, answer: str, warnings: list[str]) -> list[Claim]:
+        cfg = self.config
         texts = self.extractor.extract(answer)
         source = getattr(self.extractor, "source", "llm")
         if source == "llm" and texts:
             bad = unfaithful_extractions(
-                answer, texts, self.nli, self.config.extraction_guard_threshold
+                answer,
+                texts,
+                self.nli,
+                cfg.extraction_guard_threshold,
+                self.retriever,
+                window_size=cfg.window_size,
+                max_candidates=cfg.max_candidates,
             )
             if bad:
-                # The extractor changed or invented facts. Never verify rewritten claims:
-                # fall back to the answer's own sentences.
+                # The extractor changed or invented facts. Never verify rewritten claims: fall back
+                # to the answer's own sentences. All of them, not just the bad claims' sources:
+                # mapping a rewritten claim back to its sentence is a guess, and a wrong guess
+                # would leave the hallucinated sentence unchecked.
                 warnings.append(
-                    f"{len(bad)} extracted claim(s) were not faithful to the answer; "
-                    "fell back to sentence-level claims."
+                    f"{len(bad)} of {len(texts)} extracted claim(s) were not faithful to the "
+                    "answer; fell back to sentence-level claims."
                 )
                 texts, source = self._fallback.extract(answer), "sentence"
         if not texts:
