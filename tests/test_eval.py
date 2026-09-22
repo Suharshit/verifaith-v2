@@ -35,6 +35,16 @@ def test_metrics():
     assert run_eval.best_threshold([0.9, 0.8, 0.2, 0.1], [1, 1, 0, 0]) == 0.8
 
 
+def test_report_includes_tuned_fraction():
+    rows = [
+        {"label": 1, "verdict": "partial", "support": 0.9, "faithfulness": 0.8},
+        {"label": 0, "verdict": "partial", "support": 0.1, "faithfulness": 0.2},
+    ]
+    out = run_eval.report(rows, thr=0.5, frac_thr=0.5)
+    assert out["default_balanced_accuracy"] == 0.5
+    assert out["tuned_balanced_accuracy"] == 1.0 and out["tuned_fraction_balanced_accuracy"] == 1.0
+
+
 def test_by_type_reports_wrongful_blocks_on_faithful_answers():
     rec = {"verdict": "faithful", "counts": {"contradicted": 0}, "halluc_type": None}
     rows = [

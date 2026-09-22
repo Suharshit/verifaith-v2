@@ -90,16 +90,41 @@ See `examples/rag_guardrail.py` for a full guardrail pattern. For your own tests
 
 ## Accuracy
 
-Measured numbers go here — and only measured numbers. Run the harness on a public benchmark:
+Measured with `cross-encoder/nli-deberta-v3-base` and `--extractor sentence`, on held-out test
+splits. Reproduce with:
 
 ```bash
 pip install datasets
-python eval/prepare_aggrefact.py --out data/aggrefact.jsonl
-python eval/run_eval.py data/aggrefact.jsonl --extractor sentence
+python eval/prepare_ragtruth.py --per-task 200 --out data/ragtruth.jsonl   # real RAG answers
+python eval/run_eval.py data/ragtruth.jsonl --extractor sentence --limit 300
+python eval/prepare_vitaminc.py --out data/vitaminc.jsonl                  # single claims
+python eval/run_eval.py data/vitaminc.jsonl --extractor sentence
 ```
 
-Thresholds are tuned on a dev split and reported on a held-out test split. Default thresholds in
-`VerifierConfig` are placeholders until you calibrate them.
+| | RAGTruth (219 answers) | VitaminC (1,087 claims) |
+|---|---|---|
+| What it measures | whole pipeline on real RAG answers | the NLI model on one claim + one sentence |
+| Balanced accuracy, shipped config | **0.568** | **0.741** |
+| Balanced accuracy, dev-tuned threshold | 0.630 | 0.740 |
+| AUROC (`support_score`) | 0.665 | 0.832 |
+| Per task | Summary 0.734, QA 0.631, Data2txt 0.518 | real 0.705, synthetic 0.796 |
+
+**Read the RAGTruth column before deploying this as a guardrail.** On multi-sentence answers
+over real passages, 85% of genuinely faithful answers are flagged, because a faithful answer
+averages 7.3 claims and 2.8 of them are scored `unsupported`. Most of that is missed support,
+not false contradiction: only 5% of faithful answers contain a `contradicted` claim. But
+`contradicted` also fires on just 9% of answers annotated as containing an evident conflict, so
+today the three labels carry far less signal than the design intends. The binding constraint is
+the entailment model (see [docs/ROADMAP.md](docs/ROADMAP.md) Phase 1), not the thresholds.
+
+Single-claim benchmarks like VitaminC look much better because they exercise only the NLI step.
+Do not quote that number as the system's accuracy.
+
+Thresholds are tuned on a dev split and reported on a held-out test split. Defaults in
+`VerifierConfig` are placeholders until you calibrate them on your own data; on RAGTruth,
+requiring 69% of claims supported rather than 90% was worth about 6 points.
+
+Latency, CPU-only, is 12 s median and 42 s p95 per answer. Use a GPU for runtime guardrail use.
 
 ## Design
 

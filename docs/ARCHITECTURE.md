@@ -66,6 +66,17 @@ Notebooks, if you use them, `import verifaith` — they never hold their own cop
 ## Known limitations (be upfront about these)
 
 - Base-size NLI models are weak on arithmetic, unit conversion and multi-hop reasoning.
-- Evidence spanning distant parts of a document (beyond `window_size`) can be missed.
+- **Support recall is the dominant error.** On RAGTruth, 2.8 of the 7.3 claims in an average
+  *faithful* answer score `unsupported`, so 85% of faithful answers are flagged. Balanced accuracy
+  is 0.568 there against 0.741 on single-claim VitaminC.
+- **`contradicted` rarely fires**: 9% of answers annotated with an evident conflict, against 5% of
+  faithful answers. The label is precise enough to block on, but it catches little.
+- Evidence spanning distant parts of a document (beyond `window_size`) can be missed — including a
+  pronoun whose antecedent is further back than the window reaches.
 - The guard relies on the same NLI model; paraphrased-but-faithful claims can trigger a fallback.
-- Thresholds are uncalibrated until you run `eval/`.
+- Non-prose contexts (JSON, as in RAGTruth's Data2txt task) are near chance: 0.518.
+- Contradiction detection needs lexical overlap with the claim (`contradiction_min_overlap`),
+  because NLI models score unrelated text as contradiction. A conflict worded differently is
+  reported as `unsupported` instead.
+- Thresholds are uncalibrated until you run `eval/`. On RAGTruth, requiring 69% of claims
+  supported instead of 90% was worth ~6 points of balanced accuracy.

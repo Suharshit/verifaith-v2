@@ -79,7 +79,7 @@ def score_row(verifier: Verifier, row: dict, dev_fraction: float) -> dict:
     }
 
 
-def report(subset: list[dict], thr: float) -> dict:
+def report(subset: list[dict], thr: float, frac_thr: float) -> dict:
     y = [r["label"] for r in subset]
     return {
         "n": len(subset),
@@ -88,6 +88,10 @@ def report(subset: list[dict], thr: float) -> dict:
         ),
         "tuned_balanced_accuracy": round(
             balanced_accuracy([r["support"] >= thr for r in subset], y), 4
+        ),
+        # Tuning the share of claims that must be supported, instead of demanding every claim.
+        "tuned_fraction_balanced_accuracy": round(
+            balanced_accuracy([r["faithfulness"] >= frac_thr for r in subset], y), 4
         ),
         "auroc_support": round(auroc([r["support"] for r in subset], y), 4),
         "auroc_faithfulness": round(auroc([r["faithfulness"] for r in subset], y), 4),
@@ -120,35 +124,51 @@ def main() -> None:
     ap.add_argument("--dev-fraction", type=float, default=0.3)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--out", type=Path, default=Path("eval/results"))
+    ap.add_argument(
+        "--rescore",
+        type=Path,
+        default=None,
+        help="Recompute metrics from a records "
+        "file of an earlier run, without running the models again",
+    )
     args = ap.parse_args()
 
     lines = args.dataset.read_text(encoding="utf-8").splitlines()
     rows = [json.loads(line) for line in lines if line.strip()]
     rows = rows[: args.limit] if args.limit else rows
-    verifier = Verifier.from_settings(Settings(extractor=args.extractor))
+    config, failures = {}, 0
 
-    records, failures = [], 0
-    t0 = time.perf_counter()
-    for i, row in enumerate(rows, 1):
-        try:
-            records.append(score_row(verifier, row, args.dev_fraction))
-        except Exception as e:  # count failures explicitly; never silently score them
-            failures += 1
-            print(f"FAILED {row.get('id')}: {type(e).__name__}")
-        if i % 50 == 0:
-            print(f"{i}/{len(rows)} done, {time.perf_counter() - t0:.0f}s", flush=True)
-    elapsed = time.perf_counter() - t0
+    if args.rescore:  # recompute metrics from a previous run's records; no model, no waiting
+        records = [json.loads(line) for line in args.rescore.read_text().splitlines() if line]
+        elapsed = sum(r["seconds"] for r in records)
+    else:
+        verifier = Verifier.from_settings(Settings(extractor=args.extractor))
+        config = verifier.config.model_dump()
+        records = []
+        t0 = time.perf_counter()
+        for i, row in enumerate(rows, 1):
+            try:
+                records.append(score_row(verifier, row, args.dev_fraction))
+            except Exception as e:  # count failures explicitly; never silently score them
+                failures += 1
+                print(f"FAILED {row.get('id')}: {type(e).__name__}")
+            if i % 50 == 0:
+                print(f"{i}/{len(rows)} done, {time.perf_counter() - t0:.0f}s", flush=True)
+        elapsed = time.perf_counter() - t0
 
     dev = [r for r in records if r["split"] == "dev"]
     test = [r for r in records if r["split"] == "test"]
-    thr = best_threshold([r["support"] for r in dev], [r["label"] for r in dev])
+    dev_y = [r["label"] for r in dev]
+    thr = best_threshold([r["support"] for r in dev], dev_y)
+    frac_thr = best_threshold([r["faithfulness"] for r in dev], dev_y)
     seconds = sorted(r["seconds"] for r in records) or [0.0]
 
     summary = {
         "dataset": str(args.dataset),
         "extractor": args.extractor,
-        "config": verifier.config.model_dump(),
+        "config": config,
         "tuned_support_threshold_from_dev": thr,
+        "tuned_faithful_threshold_from_dev": frac_thr,
         "failures": failures,
         "seconds_per_item": round(elapsed / max(len(rows), 1), 3),
         "latency_p50_p95": [
@@ -159,10 +179,10 @@ def main() -> None:
         "claims_per_answer": round(
             statistics.mean(r["counts"]["total"] for r in records) if records else 0, 2
         ),
-        "dev": report(dev, thr),
-        "test": report(test, thr),
+        "dev": report(dev, thr, frac_thr),
+        "test": report(test, thr, frac_thr),
         "test_by_group": {
-            g: report([r for r in test if r["group"] == g], thr)
+            g: report([r for r in test if r["group"] == g], thr, frac_thr)
             for g in sorted({r["group"] for r in test})
         },
         "test_by_type": by_type(test),
