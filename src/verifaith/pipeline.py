@@ -7,7 +7,7 @@ from verifaith.claims.sentence import SentenceExtractor
 from verifaith.config import Settings, VerifierConfig
 from verifaith.guard import unfaithful_extractions
 from verifaith.nli.base import EntailmentModel
-from verifaith.retrieval import LexicalRetriever, Retriever
+from verifaith.retrieval import LexicalRetriever, Retriever, coverage
 from verifaith.schemas import (
     Claim,
     ClaimVerdict,
@@ -129,8 +129,7 @@ class Verifier:
             return ClaimVerdict(claim=claim, label=Label.UNSUPPORTED, confidence=1.0)
 
         best_ent = max(range(len(scores)), key=lambda i: scores[i].entailment)
-        best_con = max(range(len(scores)), key=lambda i: scores[i].contradiction)
-        e, c = scores[best_ent], scores[best_con]
+        e = scores[best_ent]
 
         # Support wins over contradiction: one noisy "contradiction" from an unrelated window
         # must not override clear support found elsewhere.
@@ -142,7 +141,17 @@ class Verifier:
                 evidence=evidence[best_ent],
                 scores=e,
             )
-        if c.contradiction >= cfg.contradiction_threshold:
+        # Only windows about the claim may contradict it: NLI models score unrelated text as
+        # contradiction ("Apples are rich in fiber" contradicts "The Eiffel Tower is 330 m tall").
+        on_topic = [
+            i
+            for i, ev in enumerate(evidence)
+            if coverage(claim.text, ev.text) >= cfg.contradiction_min_overlap
+        ]
+        best_con = max(on_topic, key=lambda i: scores[i].contradiction, default=None)
+        if best_con is not None and (c := scores[best_con]).contradiction >= (
+            cfg.contradiction_threshold
+        ):
             return ClaimVerdict(
                 claim=claim,
                 label=Label.CONTRADICTED,

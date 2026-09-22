@@ -44,12 +44,33 @@ def _tokens(text: str) -> list[str]:
     return [t for t in _TOKEN.findall(text.lower()) if t not in _STOP]
 
 
+def _stem(token: str) -> str:
+    return (
+        token[:-1] if len(token) > 3 and token.endswith("s") and not token.endswith("ss") else token
+    )
+
+
+def coverage(claim: str, text: str) -> float:
+    """Fraction of the claim's non-numeric content words that appear in `text`.
+
+    Numbers are left out: a changed number is exactly what a contradiction looks like.
+    """
+    words = {_stem(t) for t in _tokens(claim) if not t.isdigit()}
+    if not words:
+        return 1.0
+    return len(words & {_stem(t) for t in _tokens(text)}) / len(words)
+
+
 class Retriever(Protocol):
     def select(self, claim: str, windows: list[Evidence], k: int) -> list[int]: ...
 
 
 class LexicalRetriever:
-    """BM25-style scoring. Returns ALL windows when there are k or fewer (never pads)."""
+    """BM25-style scoring. Returns ALL windows when there are k or fewer (never pads).
+
+    Beyond k, windows sharing no word with the claim are never returned: ranking them would only
+    pick arbitrary windows by position.
+    """
 
     def select(self, claim: str, windows: list[Evidence], k: int) -> list[int]:
         n = len(windows)
@@ -69,4 +90,4 @@ class LexicalRetriever:
                     s += idf * tf[t] * 2.2 / (tf[t] + 1.2 * (0.25 + 0.75 * len(d) / avg_len))
             scores.append((s, -i))
         ranked = sorted(range(n), key=lambda i: scores[i], reverse=True)
-        return ranked[:k]
+        return [i for i in ranked[:k] if scores[i][0] > 0]

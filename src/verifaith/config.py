@@ -11,6 +11,13 @@ class VerifierConfig(BaseModel):
 
     support_threshold: float = Field(0.6, ge=0, le=1)
     contradiction_threshold: float = Field(0.7, ge=0, le=1)
+    contradiction_min_overlap: float = Field(
+        0.6,
+        ge=0,
+        le=1,
+        description="Min share of the claim's words a window must contain to contradict it. "
+        "Base NLI models label unrelated text as contradiction, so off-topic windows are ignored.",
+    )
     window_size: int = Field(3, ge=1, description="Sentences per evidence window")
     max_candidates: int = Field(8, ge=1, description="Evidence windows checked per claim")
     faithful_threshold: float = Field(0.9, ge=0, le=1)

@@ -1,4 +1,4 @@
-from verifaith.retrieval import LexicalRetriever
+from verifaith.retrieval import LexicalRetriever, coverage
 from verifaith.text import make_windows, split_sentences
 
 
@@ -31,3 +31,20 @@ def test_retriever_ranks_relevant_window_first():
     ws = make_windows(docs, size=1)
     top = LexicalRetriever().select("Python release year 1991", ws, k=1)
     assert ws[top[0]].text == "Python was released in 1991."
+
+
+def test_retriever_does_not_pad_with_unrelated_windows():
+    # v1 bug: with more windows than k, zero-score windows filled the slots by position.
+    docs = [" ".join(f"Filler sentence {i} about corporate matters." for i in range(20))]
+    docs[0] += " Python was released in 1991."
+    ws = make_windows(docs, size=1)
+    assert [ws[i].text for i in LexicalRetriever().select("Python 1991", ws, k=8)] == [
+        "Python was released in 1991."
+    ]
+    assert LexicalRetriever().select("The CEO resigned", ws, k=8) == []
+
+
+def test_coverage_ignores_numbers_and_plurals():
+    assert coverage("The tower is 500 metres tall.", "It stands 330 metre tall. The tower.") == 1.0
+    assert coverage("The Louvre is in Paris.", "The Eiffel Tower is in Paris.") == 0.5
+    assert coverage("1889.", "anything") == 1.0

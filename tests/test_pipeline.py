@@ -2,7 +2,7 @@ from verifaith import Label, Verifier
 from verifaith.claims import SentenceExtractor
 from verifaith.config import VerifierConfig
 from verifaith.schemas import NLIScores
-from verifaith.testing import StaticExtractor
+from verifaith.testing import KeywordNLI, StaticExtractor
 
 CTX = ["The Eiffel Tower is in Paris. It was completed in 1889. It stands 330 metres tall."]
 
@@ -71,3 +71,28 @@ def test_mixed_answer_scores_partial(verifier):
     r = verifier.evaluate("The Eiffel Tower is in Paris. The Eiffel Tower has a restaurant.", CTX)
     assert r.faithfulness == 0.5 and r.verdict == "partial"
     assert r.config["nli_model"] == "keyword-fake"
+
+
+class ContradictsUnrelated(KeywordNLI):
+    """Like the real DeBERTa NLI model: anything not entailed scores as contradiction."""
+
+    def predict(self, pairs):
+        return [
+            s if s.entailment > 0.5 else NLIScores(entailment=0.0, neutral=0.01, contradiction=0.99)
+            for s in super().predict(pairs)
+        ]
+
+
+def test_unrelated_window_cannot_contradict():
+    # v1 bug: "The Louvre is in Paris" came out contradicted by "The Eiffel Tower is in Paris".
+    v = Verifier(SentenceExtractor(), ContradictsUnrelated())
+    for answer in ["The Louvre is in Paris.", "Apples are rich in fiber."]:
+        r = v.evaluate(answer, CTX)
+        assert r.claims[0].label == Label.UNSUPPORTED, answer
+
+
+def test_on_topic_window_still_contradicts():
+    v = Verifier(SentenceExtractor(), ContradictsUnrelated())
+    r = v.evaluate("The Eiffel Tower stands 500 metres tall.", CTX)
+    assert r.claims[0].label == Label.CONTRADICTED
+    assert "330 metres" in r.claims[0].evidence.text
