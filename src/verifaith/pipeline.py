@@ -77,6 +77,11 @@ class Verifier:
             verdicts.append(self._decide(claim, evs, chunk, topics))
 
         faithfulness, contradiction_rate, verdict, counts = aggregate(verdicts, cfg)
+        if counts["conflicting"]:
+            warnings.append(
+                f"{counts['conflicting']} supported claim(s) are contradicted by other evidence: "
+                "the sources disagree (see conflicting_evidence)."
+            )
         return EvalResult(
             faithfulness=faithfulness,
             contradiction_rate=contradiction_rate,
@@ -152,16 +157,6 @@ class Verifier:
         best_ent = max(range(len(scores)), key=lambda i: scores[i].entailment)
         e = scores[best_ent]
 
-        # Support wins over contradiction: one noisy "contradiction" from an unrelated window
-        # must not override clear support found elsewhere.
-        if e.entailment >= cfg.support_threshold:
-            return ClaimVerdict(
-                claim=claim,
-                label=Label.SUPPORTED,
-                confidence=round(e.entailment, 4),
-                evidence=evidence[best_ent],
-                scores=e,
-            )
         # Only windows about the claim may contradict it: NLI models score unrelated text as
         # contradiction ("Apples are rich in fiber" contradicts "The Eiffel Tower is 330 m tall").
         topics = topics or [claim.text]
@@ -171,9 +166,25 @@ class Verifier:
             if max(coverage(t, ev.text) for t in topics) >= cfg.contradiction_min_overlap
         ]
         best_con = max(on_topic, key=lambda i: scores[i].contradiction, default=None)
-        if best_con is not None and (c := scores[best_con]).contradiction >= (
-            cfg.contradiction_threshold
-        ):
+        contradicted = (
+            best_con is not None and scores[best_con].contradiction >= cfg.contradiction_threshold
+        )
+
+        # Support wins over contradiction: the claim IS grounded in a source. But when on-topic
+        # evidence elsewhere contradicts it, the sources disagree, and that must be visible.
+        if e.entailment >= cfg.support_threshold:
+            return ClaimVerdict(
+                claim=claim,
+                label=Label.SUPPORTED,
+                confidence=round(e.entailment, 4),
+                evidence=evidence[best_ent],
+                scores=e,
+                conflicting_evidence=evidence[best_con]
+                if contradicted and best_con != best_ent
+                else None,
+            )
+        if contradicted:
+            c = scores[best_con]
             return ClaimVerdict(
                 claim=claim,
                 label=Label.CONTRADICTED,

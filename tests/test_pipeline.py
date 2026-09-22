@@ -113,6 +113,27 @@ def test_previous_sentence_does_not_make_unrelated_claim_contradictable():
     assert r.claims[1].label == Label.UNSUPPORTED
 
 
+def test_conflicting_sources_are_flagged(nli):
+    # v1 bug: support silently won, so this came out "faithful" with no warning.
+    v = Verifier(SentenceExtractor(), nli)
+    ctx = ["The bridge opened in 1932.", "Records show the bridge opened in 1937."]
+    r = v.evaluate("The bridge opened in 1932.", ctx)
+    claim = r.claims[0]
+    assert claim.label == Label.SUPPORTED
+    assert claim.evidence.text == "The bridge opened in 1932."
+    assert claim.conflicting_evidence.text == "Records show the bridge opened in 1937."
+    assert r.counts["conflicting"] == 1
+    assert r.verdict == "partial"
+    assert any("sources disagree" in w for w in r.warnings)
+
+
+def test_unrelated_window_is_not_a_conflict():
+    v = Verifier(SentenceExtractor(), ContradictsUnrelated())
+    r = v.evaluate("The Eiffel Tower is in Paris.", [*CTX, "Apples are rich in fiber."])
+    assert r.claims[0].conflicting_evidence is None
+    assert r.counts["conflicting"] == 0 and r.verdict == "faithful"
+
+
 class OneSentenceNLI(KeywordNLI):
     """Only entails from single-sentence premises: models the real model's window dilution."""
 

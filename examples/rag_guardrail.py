@@ -14,6 +14,9 @@ def guarded_answer(question: str, retrieved_docs: list[str], generate) -> str:
     if result.counts["contradicted"]:
         bad = [v.claim.text for v in result.claims if v.label == "contradicted"]
         return "I couldn't verify parts of this answer against the sources: " + "; ".join(bad)
+    if result.counts["conflicting"]:
+        disputed = [v.claim.text for v in result.claims if v.conflicting_evidence]
+        return answer + "\n\n(The sources disagree about: " + "; ".join(disputed) + ")"
     if result.verdict != "faithful":
         return answer + "\n\n(Some statements could not be verified against the sources.)"
     return answer

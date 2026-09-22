@@ -39,6 +39,11 @@ class ClaimVerdict(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     evidence: Evidence | None = None
     scores: NLIScores | None = None
+    conflicting_evidence: Evidence | None = Field(
+        None,
+        description="Set on a supported claim when other evidence contradicts it: the sources "
+        "disagree, so the claim is grounded in one source but not settled.",
+    )
 
 
 Verdict = Literal["faithful", "partial", "unfaithful", "no_claims"]
