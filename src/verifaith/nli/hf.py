@@ -33,10 +33,14 @@ class HFEntailmentModel:
             )
 
     def predict(self, pairs: list[tuple[str, str]]) -> list[NLIScores]:
-        out: list[NLIScores] = []
+        out: list[NLIScores | None] = [None] * len(pairs)
         torch = self._torch
-        for i in range(0, len(pairs), self.batch_size):
-            batch = pairs[i : i + self.batch_size]
+        # Batch pairs of similar length: each batch is padded to its longest pair, so mixing a
+        # 60-token and a 450-token pair wastes most of the compute (2x slower on CPU).
+        order = sorted(range(len(pairs)), key=lambda i: len(pairs[i][0]) + len(pairs[i][1]))
+        for i in range(0, len(order), self.batch_size):
+            idx = order[i : i + self.batch_size]
+            batch = [pairs[j] for j in idx]
             enc = self.tokenizer(
                 [p for p, _ in batch],  # premise = evidence
                 [h for _, h in batch],  # hypothesis = claim (a real sentence pair, not "[SEP]")
@@ -45,14 +49,12 @@ class HFEntailmentModel:
                 max_length=512,
                 return_tensors="pt",
             ).to(self.device)
-            with torch.no_grad():
+            with torch.inference_mode():
                 probs = torch.softmax(self.model(**enc).logits, dim=-1).cpu().tolist()
-            for row in probs:
-                out.append(
-                    NLIScores(
-                        entailment=row[self.index["entailment"]],
-                        neutral=row[self.index["neutral"]],
-                        contradiction=row[self.index["contradiction"]],
-                    )
+            for j, row in zip(idx, probs, strict=True):
+                out[j] = NLIScores(
+                    entailment=row[self.index["entailment"]],
+                    neutral=row[self.index["neutral"]],
+                    contradiction=row[self.index["contradiction"]],
                 )
-        return out
+        return out  # type: ignore[return-value]  # every slot is filled above

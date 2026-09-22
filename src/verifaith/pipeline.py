@@ -179,6 +179,7 @@ class Verifier:
                 confidence=round(e.entailment, 4),
                 evidence=evidence[best_ent],
                 scores=e,
+                support_score=round(e.entailment, 4),
                 conflicting_evidence=evidence[best_con]
                 if contradicted and best_con != best_ent
                 else None,
@@ -191,6 +192,7 @@ class Verifier:
                 confidence=round(c.contradiction, 4),
                 evidence=evidence[best_con],
                 scores=c,
+                support_score=round(e.entailment, 4),
             )
         return ClaimVerdict(
             claim=claim,
@@ -198,4 +200,5 @@ class Verifier:
             confidence=round(1 - e.entailment, 4),
             evidence=evidence[best_ent],
             scores=e,
+            support_score=round(e.entailment, 4),
         )

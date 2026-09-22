@@ -37,6 +37,13 @@ class ClaimVerdict(BaseModel):
     claim: Claim
     label: Label
     confidence: float = Field(ge=0.0, le=1.0)
+    support_score: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="Highest entailment probability over all candidate evidence. A continuous "
+        "score for ranking and threshold calibration; the label compares it to support_threshold.",
+    )
     evidence: Evidence | None = None
     scores: NLIScores | None = None
     conflicting_evidence: Evidence | None = Field(
