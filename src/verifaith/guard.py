@@ -6,8 +6,8 @@ import re
 from decimal import Decimal, InvalidOperation
 
 from verifaith.nli.base import EntailmentModel
-from verifaith.retrieval import Retriever
-from verifaith.text import make_windows
+from verifaith.retrieval import Retriever, select_from_views
+from verifaith.text import make_views
 
 _UNITS = {
     w: i
@@ -83,9 +83,9 @@ def unfaithful_extractions(
     bad = set(number_mismatches(answer, claims))
     if not claims:
         return []
-    views = [make_windows([answer], size=1), make_windows([answer], size=window_size)]
+    views = make_views([answer], size=window_size)
     premises = [
-        [answer, *(v[w].text for v in views for w in retriever.select(c, v, max_candidates))]
+        [answer, *(ev.text for ev in select_from_views(retriever, c, views, max_candidates))]
         for c in claims
     ]
     pairs = [(p, c) for c, ps in zip(claims, premises, strict=True) for p in ps]

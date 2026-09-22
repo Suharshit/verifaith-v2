@@ -96,3 +96,31 @@ def test_on_topic_window_still_contradicts():
     r = v.evaluate("The Eiffel Tower stands 500 metres tall.", CTX)
     assert r.claims[0].label == Label.CONTRADICTED
     assert "330 metres" in r.claims[0].evidence.text
+
+
+def test_pronoun_sentence_can_still_be_contradicted():
+    # "It was completed in 1950." shares no word with "It was constructed from 1887 to 1889."
+    # Its subject is named in the previous answer sentence, which the relevance check uses.
+    ctx = ["The Eiffel Tower is in Paris. It was constructed from 1887 to 1889."]
+    v = Verifier(SentenceExtractor(), ContradictsUnrelated())
+    r = v.evaluate("The Eiffel Tower is in Paris. It was completed in 1950.", ctx)
+    assert [c.label for c in r.claims] == [Label.SUPPORTED, Label.CONTRADICTED]
+
+
+def test_previous_sentence_does_not_make_unrelated_claim_contradictable():
+    v = Verifier(SentenceExtractor(), ContradictsUnrelated())
+    r = v.evaluate("The Eiffel Tower is in Paris. Apples are rich in fiber.", CTX)
+    assert r.claims[1].label == Label.UNSUPPORTED
+
+
+class OneSentenceNLI(KeywordNLI):
+    """Only entails from single-sentence premises: models the real model's window dilution."""
+
+    def predict(self, pairs):
+        return super().predict([(p if p.count(". ") == 0 else "", h) for p, h in pairs])
+
+
+def test_claim_is_checked_against_its_sentence_alone():
+    r = Verifier(SentenceExtractor(), OneSentenceNLI()).evaluate("It was completed in 1889.", CTX)
+    assert r.claims[0].label == Label.SUPPORTED
+    assert r.claims[0].evidence.text == "It was completed in 1889."

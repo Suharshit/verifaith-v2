@@ -7,7 +7,7 @@ from verifaith.claims.sentence import SentenceExtractor
 from verifaith.config import Settings, VerifierConfig
 from verifaith.guard import unfaithful_extractions
 from verifaith.nli.base import EntailmentModel
-from verifaith.retrieval import LexicalRetriever, Retriever, coverage
+from verifaith.retrieval import LexicalRetriever, Retriever, coverage, select_from_views
 from verifaith.schemas import (
     Claim,
     ClaimVerdict,
@@ -17,7 +17,7 @@ from verifaith.schemas import (
     NLIScores,
 )
 from verifaith.scoring import aggregate
-from verifaith.text import make_windows
+from verifaith.text import make_views, split_sentences
 
 VERSION = "0.1.0"
 
@@ -59,22 +59,22 @@ class Verifier:
         warnings: list[str] = []
 
         claims = self._extract_claims(answer, warnings)
-        windows = make_windows(contexts, size=cfg.window_size)
-        if not windows:
+        views = make_views(contexts, size=cfg.window_size)
+        if not views[0]:
             warnings.append("Context contained no usable sentences; every claim is unsupported.")
 
         # One batched NLI call for every (evidence, claim) pair.
-        plan: list[list[int]] = [
-            self.retriever.select(c.text, windows, cfg.max_candidates) for c in claims
+        plan = [
+            select_from_views(self.retriever, c.text, views, cfg.max_candidates) for c in claims
         ]
-        pairs = [(windows[w].text, c.text) for c, ws in zip(claims, plan, strict=True) for w in ws]
+        pairs = [(ev.text, c.text) for c, evs in zip(claims, plan, strict=True) for ev in evs]
         scores = self.nli.predict(pairs) if pairs else []
 
         verdicts, cursor = [], 0
-        for claim, ws in zip(claims, plan, strict=True):
-            chunk = scores[cursor : cursor + len(ws)]
-            cursor += len(ws)
-            verdicts.append(self._decide(claim, [windows[w] for w in ws], chunk))
+        for claim, evs, topics in zip(claims, plan, self._topics(answer, claims), strict=True):
+            chunk = scores[cursor : cursor + len(evs)]
+            cursor += len(evs)
+            verdicts.append(self._decide(claim, evs, chunk, topics))
 
         faithfulness, contradiction_rate, verdict, counts = aggregate(verdicts, cfg)
         return EvalResult(
@@ -121,8 +121,29 @@ class Verifier:
             warnings.append("No factual claims found in the answer.")
         return [Claim(id=i + 1, text=t, source=source) for i, t in enumerate(texts)]
 
+    def _topics(self, answer: str, claims: list[Claim]) -> list[list[str]]:
+        """Texts that say what each claim is about, for the contradiction relevance check.
+
+        A sentence claim like "It was completed in 1950." names its subject in an earlier answer
+        sentence, so it is also judged together with the sentences before it.
+        """
+        sents = split_sentences(answer)
+        aligned = [c.text for c in claims] == sents
+        topics = []
+        for i, c in enumerate(claims):
+            if c.source != "sentence" or not aligned:
+                topics.append([c.text])
+                continue
+            starts = range(max(0, i - self.config.window_size + 1), i + 1)
+            topics.append([" ".join(sents[s : i + 1]) for s in starts])
+        return topics
+
     def _decide(
-        self, claim: Claim, evidence: list[Evidence], scores: list[NLIScores]
+        self,
+        claim: Claim,
+        evidence: list[Evidence],
+        scores: list[NLIScores],
+        topics: list[str] | None = None,
     ) -> ClaimVerdict:
         cfg = self.config
         if not scores:
@@ -143,10 +164,11 @@ class Verifier:
             )
         # Only windows about the claim may contradict it: NLI models score unrelated text as
         # contradiction ("Apples are rich in fiber" contradicts "The Eiffel Tower is 330 m tall").
+        topics = topics or [claim.text]
         on_topic = [
             i
             for i, ev in enumerate(evidence)
-            if coverage(claim.text, ev.text) >= cfg.contradiction_min_overlap
+            if max(coverage(t, ev.text) for t in topics) >= cfg.contradiction_min_overlap
         ]
         best_con = max(on_topic, key=lambda i: scores[i].contradiction, default=None)
         if best_con is not None and (c := scores[best_con]).contradiction >= (

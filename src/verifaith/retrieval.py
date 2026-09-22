@@ -65,6 +65,22 @@ class Retriever(Protocol):
     def select(self, claim: str, windows: list[Evidence], k: int) -> list[int]: ...
 
 
+def select_from_views(
+    retriever: Retriever, claim: str, views: list[list[Evidence]], k: int
+) -> list[Evidence]:
+    """Top-k candidates from each view (see text.make_views), without duplicates."""
+    seen: set[tuple[int, int, int]] = set()
+    out: list[Evidence] = []
+    for view in views:
+        for i in retriever.select(claim, view, k):
+            ev = view[i]
+            key = (ev.context_index, ev.start_sentence, ev.end_sentence)
+            if key not in seen:
+                seen.add(key)
+                out.append(ev)
+    return out
+
+
 class LexicalRetriever:
     """BM25-style scoring. Returns ALL windows when there are k or fewer (never pads).
 

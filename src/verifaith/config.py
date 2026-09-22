@@ -19,7 +19,12 @@ class VerifierConfig(BaseModel):
         "Base NLI models label unrelated text as contradiction, so off-topic windows are ignored.",
     )
     window_size: int = Field(3, ge=1, description="Sentences per evidence window")
-    max_candidates: int = Field(8, ge=1, description="Evidence windows checked per claim")
+    max_candidates: int = Field(
+        8,
+        ge=1,
+        description="Evidence candidates checked per claim, from each of the sentence "
+        "and window views (so up to 2x this many NLI pairs)",
+    )
     faithful_threshold: float = Field(0.9, ge=0, le=1)
     unfaithful_threshold: float = Field(0.5, ge=0, le=1)
     extraction_guard_threshold: float = Field(
