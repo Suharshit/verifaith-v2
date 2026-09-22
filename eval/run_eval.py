@@ -121,6 +121,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("dataset", type=Path)
     ap.add_argument("--extractor", choices=["llm", "sentence"], default="sentence")
+    ap.add_argument(
+        "--nli-model",
+        default=None,
+        help="Override VERIFAITH_NLI_MODEL (compare NLI backends on the same data)",
+    )
     ap.add_argument("--dev-fraction", type=float, default=0.3)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--out", type=Path, default=Path("eval/results"))
@@ -142,8 +147,9 @@ def main() -> None:
         records = [json.loads(line) for line in args.rescore.read_text().splitlines() if line]
         elapsed = sum(r["seconds"] for r in records)
     else:
-        verifier = Verifier.from_settings(Settings(extractor=args.extractor))
-        config = verifier.config.model_dump()
+        overrides = {"nli_model": args.nli_model} if args.nli_model else {}
+        verifier = Verifier.from_settings(Settings(extractor=args.extractor, **overrides))
+        config = {**verifier.config.model_dump(), "nli_model": verifier.nli.name}
         records = []
         t0 = time.perf_counter()
         for i, row in enumerate(rows, 1):
